@@ -99,7 +99,10 @@ class Story(models.Model):
     release_date =      models.DateField(blank=True,null=True)
     released =          models.BooleanField(default=False)
     done_on_branches =  models.ManyToManyField(Branch,null=True)
-
+    phasename =         models.CharField(max_length=100)
+    owner =             models.CharField(max_length=100)
+    priority =          models.CharField(max_length=20)
+    effort =            models.CharField(max_length=20)
     def __unicode__(self):
         return self.name + " " + self.rally_id
         

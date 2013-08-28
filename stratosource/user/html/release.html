@@ -135,12 +135,20 @@
                     </caption>
                     <tr>
                         <th scope="row">ID</th>
+                        <th>Project</th>
+                        <th>Priority</th>
+                        <th>Effort</th>
+                        <th>Phase</th>
                         <th>Name</th>
                         <th>Actions</th>
                     </tr>
                     {% for story in release.stories.all %}
                     <tr>
                         <td><a href="/instory/{{ story.id }}">{{story.rally_id}}</a></td>
+                        <td>{{story.sprint}}</td>
+                        <td>{{story.priority}}</td>
+                        <td>{{story.effort}}</td>
+                        <td>{{story.phasename}}</td>
                         <td>{{story.name}}</td>
                         <td>
                             {% if not release.released %}

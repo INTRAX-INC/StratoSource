@@ -38,7 +38,7 @@
                             <span><a href="" class="section">Stories</a></span>
                             <span class="sectionActions">
                                 {% if releaseid %}<a href="#" onclick="document.getElementById('storyForm').submit(); return false;">Syncronize Selected Stories to Release</a>{% endif %}
-                                {% if not releaseid and rally_refresh %}<a href="/stories?refresh=true">Refresh</a>{% endif %}
+                                {% if not releaseid and rally_refresh %}Last refresh date: {{ refreshdate }} *** <a href="/stories?refresh=true"><b>Refresh Now</b></a> ***{% endif %}
                             </span>
                         </caption>
                             <tr>
@@ -46,6 +46,11 @@
                                 <th>Story ID</th>
                                 <th>Sprint/Project ID - Deadline</th>
                                 <th>Name</th>
+                                <th>Priority</th>
+                                <th>Effort</th>
+                                <th>Phase</th>
+                                <th>Owner</th>
+                                <th>Released?</th>
                                 {% if not releaseid %}<th colspan="2" align="center">Actions</th>{% endif %}
                             </tr>
                         {% for story in stories %}
@@ -61,6 +66,21 @@
                                 </td>
                                 <td>
                                     {{ story.name }}
+                                </td>
+                                <td>
+                                    {{ story.priority }}
+                                </td>
+                                <td>
+                                    {{ story.effort }}
+                                </td>
+                                <td>
+                                    {{ story.phasename }}
+                                </td>
+                                <td>
+                                    {{ story.owner }}
+                                </td>
+                                <td>
+                                	{{ story.released }}
                                 </td>
                                 {% if not releaseid %}
                                 <td>

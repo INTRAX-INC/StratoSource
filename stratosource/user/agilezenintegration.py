@@ -18,12 +18,14 @@
 #import json
 #import urllib
 import requests
+import re
 from stratosource.admin.management import ConfigCache
-from stratosource.admin.models import Story
+from stratosource.admin.models import Story, ConfigSetting
 from stratosource import settings
 #from operator import attrgetter
 import logging
 from django.db import transaction
+from datetime import datetime
 
 agilezen_apikey = ConfigCache.get_config_value('agilezen.apikey')
 rest_header = {"X-Zen-ApiKey": agilezen_apikey, "Accept" : "application/json;charset=utf-8"}
@@ -61,37 +63,67 @@ def get_stories(projectIds):
     stories = {}
     start = 1
     pagesize = 200
+
+
     for projId in projectIds:
         print 'project'
         lastPage = False
         page = start
+
         while not(lastPage):
             storyurl = agileurl+apiurl+'projects/'+ projId +'/stories?'+ get_page_query_params(page, pagesize)
             logger.debug('Retrieving Stories from URL: '+storyurl)
             print storyurl
             response = requests.get(storyurl, headers=rest_header)
+           
+            print agilezen_apikey 
+            print rest_header
+            #cannot print response as there are characters in it that cause a crash
+            #print response.text
+    
             processed_response = response.json()
             story_list = processed_response[u'items']
             count = len(story_list) #processed_response[u'totalItems']
             print 'count %d'%count
-            
             for result in story_list:
                 #print result
                 phase = result[u'phase']
-                ignorestates = [u'Backlog', u'Ready', u'Archive',  u'Release Candidate / Production']
+                ignorestates = [u'Backlog']
+                #ignorestates = [u'Backlog', u'Ready']
+                project = result[u'project']
                 if not phase[u'name'] in ignorestates:
+                    print result
                     story = Story()
+                    #story.rally_id = '%s-%s' % (result[u'id'],project[u'id'])
+                    #print project[u'id']
                     story.rally_id = result[u'id']
                     story.name = result[u'text'][0:100]
+                    story.phasename = phase[u'name'][0:100]
+                    story.priority = result[u'priority']
+                    story.effort = result[u'size']
+                    try:
+                        owner = result[u'owner']
+                        story.owner = owner[u'email']
+                        #print owner
+                        #print story.owner
+                    except:
+                        print result
+                        logger.debug('story has no owner, leaving blank')
+                        
                     story.sprint = result[u'text'][0:3]
                     story.url = agileurl+'project/'+ projId +'/story/%d'%result[u'id']
+                    project = result[u'project']
+                    project_name = project[u'name']
+                    projshort_name = ''
                     try:
-                        story.sprint = '%s - %s' % (projId, result[u'deadline'])
-                        #story.release_date = result[u'deadline']
+                        projshort_name = (re.search( r'\(.*?\)', project_name)).group()
                     except:
-                        story.sprint = '%s'%projId
-                        logger.debug('no deadline for story %d'%story.rally_id)
-                    stories[story.rally_id] = story
+                        projshort_name = '%s-%s' % (project_name[0:10],'(ERRNOPAREN)')
+                        
+                    story.sprint = '%s - %s' % (projId, projshort_name)
+                    storykey = '%s-%s' % (story.rally_id, story.sprint)
+                    #print 'generated key for stories list - %s' % storykey
+                    stories[storykey] = story
                     
             if count == 0:
                 lastPage = True
@@ -101,29 +133,53 @@ def get_stories(projectIds):
 
 @transaction.commit_on_success    
 def refresh():
-        projectList = ConfigCache.get_config_value('rally.pickedprojects')
-        #print 'project list: '+projectList
-        if len(projectList) > 0:
-            rallyStories = get_stories(projectList.split(';'))
-            dbstories = Story.objects.filter(rally_id__in=rallyStories.keys())
-            dbStoryMap = {}
-            for dbstory in dbstories:
-                #print 'storing story %d' % int(dbstory.rally_id)
-                dbStoryMap[int(dbstory.rally_id)] = dbstory
+    
+    settinglist = ConfigSetting.objects.filter(key='story.refreshdate')
+    lastrefreshsetting = settinglist[0]
+    lastrefreshsetting.value = datetime.now()
+    lastrefreshsetting.save()
+    projectList = ConfigCache.get_config_value('rally.pickedprojects')
+    #print 'project list: '+projectList
+    if len(projectList) > 0:
+        rallyStories = get_stories(projectList.split(';'))
+        dbstories = Story.objects.all() #filter(rally_id__in=rallyStories.keys())
+        dbStoryMap = {}
+        for dbstory in dbstories:
+            #print 'storing story %d' % int(dbstory.rally_id)
+            key = '%s-%s' % (dbstory.rally_id, dbstory.sprint)
+            #print 'generated key for dbStoryMap - %s' % key
+            #dbStoryMap[int(dbstory.rally_id)] = dbstory
+            dbStoryMap[key] = dbstory
 
-            for story in rallyStories.values():
-                dbstory = story
-                if story.rally_id in dbStoryMap:
-                    #print 'match found %d' % story.rally_id
-                    logger.debug('Updating [%d]' % story.rally_id)
-                    # Override with database version if it exists
-                    dbstory = dbStoryMap[story.rally_id]
-                    dbstory.url = story.url
-                    dbstory.name = story.name
-                    dbstory.sprint = story.sprint
-                else:
-                    #print 'no match found %d' % story.rally_id
-                    logger.debug('Creating [%d]' % story.rally_id)
-                    dbstory.sprint = story.sprint
-                
-                dbstory.save()
+        for story in rallyStories.values():
+            dbstory = story
+            #if story.rally_id in dbStoryMap:
+            #    print 'MATCH THAT KDOG'
+            #else:
+            #    print 'DIDNOTFIND'
+            #print 'searching story - [%d] - [%s]
+            storykey = '%s-%s' % (story.rally_id, story.sprint)
+            #print 'generated key for story - %s' % storykey
+            
+            if (storykey in dbStoryMap):
+            #if (story.rally_id in dbStoryMap) and ((dbStoryMap[story.rally_id]).sprint == story.sprint):
+                ## This logic is used to update a story when it already exists and has been downloaded again
+                #print 'match found %d' % story.rally_id
+                logger.debug('Updating [%d]-sprint[%s]' % (story.rally_id, story.sprint))
+                #print 'Updating [%d]-sprint[%s]' % (story.rally_id, story.sprint)
+                # Override with database version if it exists
+                dbstory = dbStoryMap[storykey]
+                dbstory.url = story.url
+                dbstory.name = story.name
+                dbstory.owner = story.owner
+                dbstory.phasename = story.phasename
+                dbstory.sprint = story.sprint
+                dbstory.effort = story.effort
+                dbstory.priority = story.priority
+            else:
+                ## This logic is used when a new story is downloaded
+                #print 'no match found %d' % story.rally_id
+                logger.debug('Creating [%d]' % story.rally_id)
+                dbstory.sprint = story.sprint
+            
+            dbstory.save()
